@@ -1,0 +1,218 @@
+-- allium: 3
+
+-- Specification of autolith-asdf: the manifest schema library for lode
+-- systems. The library defines one ASDF system class and the slot
+-- schema a defsystem declaration uses. The contract records the
+-- validation split between the library and the consumer.
+
+------------------------------------------------------------
+-- Contracts
+------------------------------------------------------------
+
+-- The obligations the library owes every consumer of the schema.
+-- Surfaces reference this contract.
+
+contract ManifestSchema {
+    @invariant SourceDataInert
+        -- Every dependency entry contributes a load requirement on the
+        -- entry name only. For a Sourced dependency, source_kind,
+        -- location, ref and pin do not affect which system ASDF loads.
+        -- Outside Autolith, the user provides the named systems.
+
+    @invariant LibraryInertOutsideAutolith
+        -- The library defines the system class and the slot schema. It
+        -- never invokes an activation entry point, never checks a
+        -- capability list, and never evaluates activation ordering.
+        -- Loading a declared system runs ASDF's own mechanics.
+
+    @invariant SchemaVersionIsLibraryVersion
+        -- The manifest schema version is the library's own version. A
+        -- manifest carries no schema version key. Compatibility is
+        -- declared through :defsystem-depends-on's minimum version.
+
+    @invariant ShapeErrorsFailAtDefinition
+        -- A :depends-on entry that does not match the grammar, or a
+        -- slot value of the wrong shape, fails system definition with
+        -- an error. Definition-time checking covers shape only;
+        -- semantic checks belong to the consumer.
+
+    @invariant NameConflictsFailAtResolution
+        -- The library parses every :depends-on entry, including two
+        -- entries with the same name. The consumer resolves one
+        -- implementation per name: same origin with different refs is
+        -- not a conflict; different origins are a conflict and fail
+        -- resolution. A name conflict that appears after resolution
+        -- also fails.
+}
+
+------------------------------------------------------------
+-- Actors and Surfaces
+------------------------------------------------------------
+
+-- Two actors touch the manifest schema. The lode author writes the
+-- defsystem declaration. The consumer reads the parsed slots around
+-- the load. The library treats every consumer the same.
+
+actor LodeAuthor {
+    @guidance
+        -- Writes one defsystem declaration. The declaration uses
+        -- the slot schema: name, version, one Dependency per
+        -- :depends-on entry, activation, capabilities, and
+        -- activation dependencies.
+}
+
+actor Consumer {
+    -- One actor stands for every reader. Inside Autolith, the
+    -- consumer duties split between the distribution client
+    -- (preflight metadata, resolution, lock) and the Autolith
+    -- manager (slots around the load, activation order,
+    -- registration checks). Outside Autolith, the user is the
+    -- consumer.
+    @guidance
+        -- Reads the parsed slots of one autolith-asdf:system. The
+        -- consumer owns every semantic check: version requirements,
+        -- the capability vocabulary, unknown source kinds, and name
+        -- conflicts at resolution.
+}
+
+surface AuthorSurface {
+    -- The defsystem declaration in the .asd file. The lode author
+    -- writes it once per lode. The library parses it at definition
+    -- time and fails shape errors there.
+    facing author: LodeAuthor
+    contracts:
+        demands ManifestSchema
+}
+
+surface ConsumerSurface {
+    -- The parsed slots of one Manifest. The distribution client
+    -- reads them at preflight, the manager reads them around the
+    -- load, and outside Autolith the user reads them.
+    facing reader: Consumer
+    contracts:
+        demands ManifestSchema
+}
+
+------------------------------------------------------------
+-- Entities and Variants
+------------------------------------------------------------
+
+-- One parsed defsystem declaration of class autolith-asdf:system.
+-- The consumer reads these slots around the load; ASDF ignores them.
+
+entity Manifest {
+    -- The system name.
+    name: String
+
+    -- The system version. Version requirements check against it.
+    version: String
+
+    -- Activation entry point name. Absent declares a library lode:
+    -- the system never activates.
+    activation: String?
+
+    -- Registration kinds the activation may use. Absent or empty
+    -- means none: an activation registers nothing. The vocabulary is
+    -- the consumer's closed set; this library treats entries as
+    -- opaque names.
+    capabilities: Set<String>
+
+    -- Systems whose activation must finish before this system's
+    -- activation. The consumer builds the activation graph from these
+    -- names and rejects cycles at resolution.
+    activation_depends_on: Set<String>
+
+    -- Code dependencies declared in :depends-on, one Dependency per
+    -- entry. Author rule: each dependency appears once, in one entry.
+    -- The library does not enforce this rule. The consumer resolves
+    -- duplicate names at resolution.
+    dependencies: Dependency with manifest = this
+}
+
+-- One :depends-on entry. Every entry contributes a load requirement
+-- on its name.
+
+entity Dependency {
+    -- The name of the required system.
+    name: String
+
+    form: Plain | Versioned | Sourced
+
+    -- The manifest that declares this entry.
+    manifest: Manifest
+}
+
+variant Plain : Dependency {
+    -- A bare system name. No version requirement, no source data.
+}
+
+variant Versioned : Dependency {
+    -- Minimum version of the named system.
+    min_version: String
+}
+
+variant Sourced : Dependency {
+    -- Keyword naming the fetcher: git, http, file, or a custom kind.
+    -- An unknown kind is a resolution-time error in the consumer, not
+    -- a definition-time error here.
+    source_kind: String
+
+    -- Where the source lives: a URL or a path, interpreted by the
+    -- fetcher.
+    location: String
+
+    -- Default ref for kinds that resolve refs.
+    ref: Ref?
+
+    -- Exact revision pin: one GitHash or ContentDigest.
+    pin: Pin?
+
+    -- Compatibility requirement, checked against whatever
+    -- implementation resolves.
+    min_version: String?
+}
+
+-- One ref in a Sourced dependency entry. The kind says how the
+-- fetcher resolves the designator. Only kinds that resolve refs
+-- carry a ref.
+
+entity Ref {
+    -- How the fetcher resolves the designator.
+    kind: Tag | Branch | Commit
+
+    -- The designator: a tag name, a branch name, or a commit hash.
+    designator: String
+}
+
+variant Tag : Ref {
+    -- Resolve the designator as a tag name.
+}
+
+variant Branch : Ref {
+    -- Resolve the designator as a branch name.
+}
+
+variant Commit : Ref {
+    -- The designator names the commit itself.
+}
+
+-- One pin in a Sourced dependency entry. The kind names the pin
+-- form. The pin turns the entry into an exact requirement on that
+-- source and that revision.
+
+entity Pin {
+    -- Which pin form the value is.
+    kind: GitHash | ContentDigest
+
+    -- The pin value: a git commit hash, or a content digest.
+    value: String
+}
+
+variant GitHash : Pin {
+    -- The value pins a git commit.
+}
+
+variant ContentDigest : Pin {
+    -- The value pins the fetched content.
+}
+
