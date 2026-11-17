@@ -78,7 +78,12 @@ actor Consumer {
 surface AuthorSurface {
     -- The defsystem declaration in the .asd file. The lode author
     -- writes it once per lode. The library parses it at definition
-    -- time and fails shape errors there.
+    -- time and fails shape errors there. The :depends-on entry
+    -- grammar: a plain name, a version requirement (:version "name"
+    -- "min"), or a full entry. A full entry is the name string, the
+    -- kind keyword, the location string, then options in any order:
+    -- :ref, :hash, :version. Each option key appears at most once; a
+    -- repeated key is a shape error.
     facing author: LodeAuthor
     contracts:
         demands ManifestSchema
@@ -155,6 +160,10 @@ variant Sourced : Dependency {
     -- Keyword naming the fetcher: git, http, file, or a custom kind.
     -- An unknown kind is a resolution-time error in the consumer, not
     -- a definition-time error here.
+    -- Option rules per kind: git accepts :ref and :hash; http
+    -- accepts :hash only; file accepts neither :ref nor :hash;
+    -- :version is allowed on every kind. A custom kind accepts all
+    -- three option keys.
     source_kind: String
 
     -- Where the source lives: a URL or a path, interpreted by the
@@ -174,7 +183,9 @@ variant Sourced : Dependency {
 
 -- One ref in a Sourced dependency entry. The kind says how the
 -- fetcher resolves the designator. Only kinds that resolve refs
--- carry a ref.
+-- carry a ref. The ref form is (:tag name), (:branch name), or
+-- (:commit hash); the keyword maps to the kinds Tag, Branch,
+-- and Commit.
 
 entity Ref {
     -- How the fetcher resolves the designator.
@@ -198,7 +209,9 @@ variant Commit : Ref {
 
 -- One pin in a Sourced dependency entry. The kind names the pin
 -- form. The pin turns the entry into an exact requirement on that
--- source and that revision.
+-- source and that revision. The entry key is :hash for every
+-- kind. The pin kind follows source_kind: GitHash when
+-- source_kind is git; ContentDigest otherwise.
 
 entity Pin {
     -- Which pin form the value is.
