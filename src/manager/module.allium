@@ -7,7 +7,7 @@
 -- stays inert: it defines the schema, it records definitions at
 -- load, it never activates anything.
 
-use "./autolith-asdf.allium" as schema
+use "../asdf/module.allium" as schema
 
 ------------------------------------------------------------
 -- Contracts
