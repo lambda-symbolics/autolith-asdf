@@ -21,9 +21,11 @@ contract ManifestSchema {
 
     @invariant LibraryInertOutsideAutolith
         -- The library defines the system class and the slot schema. It
-        -- never invokes an activation entry point, never checks a
-        -- capability list, and never evaluates activation ordering.
-        -- Loading a declared system runs ASDF's own mechanics.
+        -- records lode definitions at load and checks each
+        -- definition's kind against the declared capabilities. It
+        -- never invokes an activation entry point and never evaluates
+        -- activation ordering. Loading a declared system runs ASDF's
+        -- own mechanics.
 
     @invariant SchemaVersionIsLibraryVersion
         -- The manifest schema version is the library's own version. A
@@ -83,7 +85,9 @@ surface AuthorSurface {
     -- "min"), or a full entry. A full entry is the name string, the
     -- kind keyword, the location string, then options in any order:
     -- :ref, :hash, :version. Each option key appears at most once; a
-    -- repeated key is a shape error.
+    -- repeated key is a shape error. The declaration selects the
+    -- class with :defsystem-depends-on ("autolith-asdf") and
+    -- :class "autolith-asdf:system".
     facing author: LodeAuthor
     contracts:
         demands ManifestSchema
@@ -112,8 +116,10 @@ entity Manifest {
     -- The system version. Version requirements check against it.
     version: String
 
-    -- Activation entry point name. Absent declares a library lode:
-    -- the system never activates.
+    -- Activation entry point name. Absent with no capabilities
+    -- declares a library lode: the system never activates. Absent
+    -- with capabilities: the lode activates from its definitions
+    -- alone.
     activation: String?
 
     -- Registration kinds the activation may use. Absent or empty

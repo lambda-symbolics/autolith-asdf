@@ -52,11 +52,12 @@ contract ActivationLifecycle {
         -- registration with the next position on its run before
         -- the activation continues.
 
-    @invariant KindDeclaredByManifest
-        -- The manager accepts a registration kind only when the
-        -- lode's manifest declares the kind in capabilities.
-        -- Each lode fixes its own vocabulary; the manager adds
-        -- none.
+    @invariant DefinitionsCheckedAtLoad
+        -- The library checked each recorded definition's kind at
+        -- load. The manager installs the lode's recorded
+        -- definitions when activation succeeds. The entry point's
+        -- own registrations cover stateful setup only: connections,
+        -- files, timers.
 
     @invariant UnwindInReverseOrder
         -- A signaled failure of the entry point makes the
@@ -159,8 +160,7 @@ entity Registration {
     -- first tracked registration.
     position: Integer
 
-    -- Capability kind from the lode's manifest. The lode
-    -- fixes its own vocabulary.
+    -- Label for this stateful registration; the lode chooses it.
     kind: String
 
     -- Opaque release step. The manager runs it in reverse
@@ -202,7 +202,6 @@ rule StartActivation {
 rule TrackRegistration {
     when: RegistrationTracked(author, run, kind, unwind_action, drain)
     requires: run.status = running
-    requires: kind in run.system.capabilities
     ensures: Registration.created(
         run: run,
         position: run.registrations.count + 1,
