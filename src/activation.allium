@@ -1,0 +1,344 @@
+-- allium: 3
+
+-- Specification of the lode activation lifecycle: the consumer-side
+-- behaviour for activating and deactivating lode systems. The
+-- manager owns this behaviour. The autolith-asdf library stays
+-- inert: it defines the schema, it never activates anything.
+
+use "./autolith-asdf.allium" as schema
+
+------------------------------------------------------------
+-- Contracts
+------------------------------------------------------------
+
+-- The obligations around one lode's activation entry point. The
+-- manager supplies the lifecycle operations; the lode author
+-- supplies the entry point. The contract is direction-agnostic:
+-- each surface names its side.
+
+contract ActivationLifecycle {
+    -- The manager starts and drives one activation run for a
+    -- loaded lode system, using the runtime context it built.
+    activate: (system: schema/Manifest, context: Any) -> ActivationRun
+
+    -- The entry point the lode author writes. It takes the
+    -- runtime context and returns the cleanup handle.
+    activation_entry_point: (context: Any) -> CleanupHandle
+
+    -- The manager primitive the entry point registers through.
+    -- Each call tracks one completed registration on the
+    -- current run.
+    register: (kind: String, unwind_action: Any, drain: DrainPolicy) -> Registration
+
+    -- The manager stops new work, drains in-flight work, runs
+    -- the cleanup handle, and reports the cleanup failures as
+    -- one list.
+    deactivate: (run: ActivationRun) -> List<String>
+
+    @invariant ContextOpaque
+        -- The manager builds the runtime context. The activation
+        -- entry point interprets it. No other party reads it.
+        -- The library never sees it.
+
+    @invariant EntryPointResolvedAtActivation
+        -- The manager resolves the activation name, a
+        -- package:symbol string, at activation time.
+        -- Definition-time checking covered the name's shape
+        -- only.
+
+    @invariant RegistrationsTrackedInOrder
+        -- The entry point registers through the manager
+        -- primitives. The manager tracks each completed
+        -- registration with the next position on its run before
+        -- the activation continues.
+
+    @invariant KindDeclaredByManifest
+        -- The manager accepts a registration kind only when the
+        -- lode's manifest declares the kind in capabilities.
+        -- Each lode fixes its own vocabulary; the manager adds
+        -- none.
+
+    @invariant UnwindInReverseOrder
+        -- A signaled failure of the entry point makes the
+        -- manager unwind the tracked registrations in reverse
+        -- position order, running each unwind action. The
+        -- unwind path never uses a cleanup handle: no handle
+        -- exists for a failed run.
+
+    @invariant FailedRunLeavesSystemInactive
+        -- After the unwind, the failed run is terminal. The
+        -- system stays loaded and inactive. A retry is a new
+        -- activation run.
+
+    @invariant HandleReturnedOnSuccess
+        -- The entry point returns the cleanup handle. The
+        -- manager records the returned handle when activation
+        -- succeeds, and runs it during deactivation.
+
+    @invariant DeactivationRefusesActiveDependents
+        -- The manager refuses to deactivate a run while another
+        -- active run's system depends on it. The refusal
+        -- reports the dependents. The consumer deactivates the
+        -- dependents first.
+
+    @invariant DrainBeforeCleanup
+        -- Deactivation stops new work first, then drains each
+        -- registration's in-flight work in reverse position
+        -- order, applying the registration's drain policy: wait
+        -- or cancel. The cleanup handle runs after the drain.
+        -- Across systems, deactivation runs in reverse
+        -- activation order.
+
+    @invariant CleanupFailuresCollected
+        -- A cleanup step that fails does not stop the remaining
+        -- steps. The manager continues, then reports all
+        -- failures as one list.
+
+    @invariant OneLiveRunPerSystem
+        -- The manager starts a new run for a system only after
+        -- the system's previous run reached a terminal state.
+
+    @guidance
+        -- The manager primitives, the runtime context, and the
+        -- cleanup handle are opaque to this spec. Their concrete
+        -- types belong to the manager implementation.
+}
+
+------------------------------------------------------------
+-- Enumerations
+------------------------------------------------------------
+
+-- How a registration's in-flight work ends during deactivation.
+
+enum DrainPolicy { wait | cancel }
+
+------------------------------------------------------------
+-- Entities and Variants
+------------------------------------------------------------
+
+-- One activation attempt of one lode system. The manager creates
+-- a run when activation starts. Each retry is a new run.
+
+entity ActivationRun {
+    -- The lode system this run activates.
+    system: schema/Manifest
+
+    -- Lifecycle state of this attempt.
+    status: running | unwinding | active | draining | done | failed
+
+    transitions status {
+        running -> active
+        running -> unwinding
+        unwinding -> failed
+        active -> draining
+        draining -> done
+        terminal: failed, done
+    }
+
+    -- Registrations this run tracked, in registration order.
+    registrations: Registration with run = this
+
+    -- The cleanup handle the activation returned. It exists
+    -- only after activation succeeded.
+    handle: CleanupHandle with run = this
+
+    invariant HandleOnlyAfterSuccess {
+        handle != null implies status in {active, draining, done}
+    }
+}
+
+-- One tracked registration of one activation run. The entry
+-- point registers through the manager primitives; the manager
+-- tracks each completed registration with the next position.
+
+entity Registration {
+    -- The run that tracked this registration.
+    run: ActivationRun
+
+    -- Registration order within the run. Position 1 is the
+    -- first tracked registration.
+    position: Integer
+
+    -- Capability kind from the lode's manifest. The lode
+    -- fixes its own vocabulary.
+    kind: String
+
+    -- Opaque release step. The manager runs it in reverse
+    -- position order during unwind and cleanup.
+    unwind_action: Any
+
+    -- Drain policy for this registration's in-flight work.
+    drain: DrainPolicy
+}
+
+-- The cleanup handle one activation returned. The manager runs
+-- it during deactivation, after the drain. Its content is the
+-- activation's choice and stays opaque to this spec.
+
+entity CleanupHandle {
+    -- The successful run that returned this handle.
+    run: ActivationRun
+}
+
+------------------------------------------------------------
+-- Rules
+------------------------------------------------------------
+
+-- The manager starts one activation run for a loaded lode
+-- system.
+
+rule StartActivation {
+    when: Activate(manager, lode, _)
+    requires: lode.activation != null
+    requires: (ActivationRuns where system = lode and status in {running, unwinding, active, draining}).count = 0
+    for name in lode.activation_depends_on:
+        requires: (ActivationRuns where system.name = name and status = active).count > 0
+    ensures: ActivationRun.created(system: lode, status: running)
+}
+
+-- The entry point registers one completed act through the
+-- manager primitives.
+
+rule TrackRegistration {
+    when: RegistrationTracked(author, run, kind, unwind_action, drain)
+    requires: run.status = running
+    requires: kind in run.system.capabilities
+    ensures: Registration.created(
+        run: run,
+        position: run.registrations.count + 1,
+        kind: kind,
+        unwind_action: unwind_action,
+        drain: drain
+    )
+}
+
+-- The entry point returned the cleanup handle.
+
+rule ActivationSucceeds {
+    when: ActivationSucceeded(author, run)
+    requires: run.status = running
+    ensures:
+        run.status = active
+        CleanupHandle.created(run: run)
+}
+
+-- The entry point signaled a failure.
+
+rule ActivationFails {
+    when: ActivationFailed(author, run)
+    requires: run.status = running
+    ensures: run.status = unwinding
+    @guidance
+        -- The manager runs each tracked registration's unwind
+        -- action in reverse position order, then reports the
+        -- unwind result. The unwind path uses the tracked
+        -- registrations, never a cleanup handle.
+}
+
+-- The manager finished the unwind of a failed run.
+
+rule CompleteUnwind {
+    when: UnwindCompleted(manager, run)
+    requires: run.status = unwinding
+    ensures: run.status = failed
+}
+
+-- The consumer commands deactivation of one active run.
+
+rule StartDeactivation {
+    when: Deactivate(manager, run)
+    requires: run.status = active
+    requires: (ActivationRuns where status = active and system != run.system and run.system.name in system.activation_depends_on).count = 0
+    ensures: run.status = draining
+    @guidance
+        -- A refused deactivation reports the active
+        -- dependents. The consumer deactivates the dependents
+        -- first, then retries.
+}
+
+-- The manager finished the drain and the cleanup handle.
+
+rule CompleteDeactivation {
+    when: DeactivationCompleted(manager, run)
+    requires: run.status = draining
+    ensures: run.status = done
+    @guidance
+        -- The manager stopped new work at draining, ran the
+        -- drain steps in reverse position order, then ran the
+        -- cleanup handle. Cleanup failures were collected and
+        -- reported as one list.
+}
+
+------------------------------------------------------------
+-- Actor Declarations
+------------------------------------------------------------
+
+-- The same lode author as in autolith-asdf.allium: the author
+-- who writes the defsystem declaration also writes its
+-- activation entry point.
+
+actor LodeAuthor {
+    @guidance
+        -- Writes the activation entry point for one lode. The
+        -- entry point takes the runtime context, registers
+        -- through the manager primitives, and returns the
+        -- cleanup handle.
+}
+
+-- The Autolith manager: the consumer that drives activation.
+-- In the manifest spec this duty sits inside the Consumer
+-- actor.
+
+actor Manager {
+    @guidance
+        -- Resolves the activation name at activation time,
+        -- invokes the entry point with the runtime context,
+        -- tracks registrations, unwinds on failure, and drains
+        -- before cleanup.
+}
+
+------------------------------------------------------------
+-- Surfaces
+------------------------------------------------------------
+
+-- The entry point of one lode, while its run executes. The
+-- manager supplies the registration primitives behind this
+-- boundary.
+
+surface EntryPoint {
+    facing author: LodeAuthor
+    context run: ActivationRun where status = running
+
+    exposes:
+        run.system.capabilities
+        run.registrations
+
+    provides:
+        RegistrationTracked(author, run, kind, unwind_action, drain)
+            when run.status = running
+        ActivationSucceeded(author, run) when run.status = running
+        ActivationFailed(author, run) when run.status = running
+
+    contracts:
+        demands ActivationLifecycle
+}
+
+-- The manager's commands over one activation run.
+
+surface ActivationCommands {
+    facing manager: Manager
+    context run: ActivationRun
+
+    exposes:
+        run.status
+        run.registrations
+
+    provides:
+        Activate(manager, lode, runtime_context)
+        Deactivate(manager, run) when run.status = active
+        UnwindCompleted(manager, run) when run.status = unwinding
+        DeactivationCompleted(manager, run) when run.status = draining
+
+    contracts:
+        demands ActivationLifecycle
+}
