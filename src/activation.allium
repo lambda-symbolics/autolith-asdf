@@ -1,9 +1,11 @@
 -- allium: 3
 
--- Specification of the lode activation lifecycle: the consumer-side
--- behaviour for activating and deactivating lode systems. The
--- manager owns this behaviour. The autolith-asdf library stays
--- inert: it defines the schema, it never activates anything.
+-- Specification of the client side of lode systems: the consumer-side
+-- behaviour for activating and deactivating lode systems, and for
+-- installing and removing the lode's recorded definitions at those
+-- times. The manager owns this behaviour. The autolith-asdf library
+-- stays inert: it defines the schema, it records definitions at
+-- load, it never activates anything.
 
 use "./autolith-asdf.allium" as schema
 
@@ -58,6 +60,13 @@ contract ActivationLifecycle {
         -- definitions when activation succeeds. The entry point's
         -- own registrations cover stateful setup only: connections,
         -- files, timers.
+
+    @invariant InstalledAtActivation
+        -- When the lode's activation succeeds, the manager installs
+        -- every recorded definition. Deactivation removes every
+        -- installed definition before the cleanup handle runs. A
+        -- lode with capabilities and no activation entry point
+        -- activates from its definitions alone.
 
     @invariant UnwindInReverseOrder
         -- A signaled failure of the entry point makes the

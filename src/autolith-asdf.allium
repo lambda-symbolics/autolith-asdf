@@ -1,9 +1,18 @@
 -- allium: 3
 
--- Specification of autolith-asdf: the manifest schema library for lode
--- systems. The library defines one ASDF system class and the slot
--- schema a defsystem declaration uses. The contract records the
+-- Specification of autolith-asdf: the ASDF definition library for
+-- lode systems. The library defines one ASDF system class, the slot
+-- schema a defsystem declaration uses, and the definition records
+-- the lode's source files create at load. The contracts record the
 -- validation split between the library and the consumer.
+--
+-- Responsibility split:
+-- Distribution client: obtain sources, select releases, verify
+-- artifacts, maintain the dependency lock.
+-- ASDF: discover systems, compile, load, run tests during plugin
+-- development.
+-- Autolith: approve activation, register capabilities, manage
+-- runtime instances, deactivate and diagnose.
 
 ------------------------------------------------------------
 -- Contracts
@@ -47,59 +56,43 @@ contract ManifestSchema {
         -- also fails.
 }
 
-------------------------------------------------------------
--- Actors and Surfaces
-------------------------------------------------------------
+-- The obligations around one lode's definition forms. The lode
+-- author writes the forms in the lode's source. The library records
+-- and checks them at load.
 
--- Two actors touch the manifest schema. The lode author writes the
--- defsystem declaration. The consumer reads the parsed slots around
--- the load. The library treats every consumer the same.
+contract LodeDefinitions {
+    record_skill: (lode: Manifest, name: String, description: String, instructions: String, related: Set<String>) -> SkillDefinition
 
-actor LodeAuthor {
+    record_tool: (lode: Manifest, name: String, description: String, usage: String, handler: Any, related: Set<String>) -> ToolDefinition
+
+    record_context: (lode: Manifest, name: String, description: String, related: Set<String>) -> ContextDefinition
+
+    @invariant KindsCheckedAtLoad
+        -- The library checks each recorded definition's kind against
+        -- the manifest's capabilities while the lode loads. An
+        -- undeclared kind fails the load. The manager does not
+        -- recheck kinds.
+
+    @invariant UnusedKindWarns
+        -- A declared kind with no recorded definition at the end of
+        -- the load produces a warning.
+
+    @invariant DefinitionsAttributed
+        -- Each definition records under the lode that owns the file
+        -- that defined it.
+
+    @invariant NamesUniquePerLode
+        -- Within one lode, each definition name is unique. The
+        -- registry is keyed by lode and name.
+
+    @invariant RelatedLinksQueryable
+        -- The registry answers queries by name and by related link.
+        -- A related name with no matching definition in the lode is
+        -- reported at load.
+
     @guidance
-        -- Writes one defsystem declaration. The declaration uses
-        -- the slot schema: name, version, one Dependency per
-        -- :depends-on entry, activation, capabilities, and
-        -- activation dependencies.
-}
-
-actor Consumer {
-    -- One actor stands for every reader. Inside Autolith, the
-    -- consumer duties split between the distribution client
-    -- (preflight metadata, resolution, lock) and the Autolith
-    -- manager (slots around the load, activation order,
-    -- registration checks). Outside Autolith, the user is the
-    -- consumer.
-    @guidance
-        -- Reads the parsed slots of one autolith-asdf:system. The
-        -- consumer owns every semantic check: version requirements,
-        -- the capability vocabulary, unknown source kinds, and name
-        -- conflicts at resolution.
-}
-
-surface AuthorSurface {
-    -- The defsystem declaration in the .asd file. The lode author
-    -- writes it once per lode. The library parses it at definition
-    -- time and fails shape errors there. The :depends-on entry
-    -- grammar: a plain name, a version requirement (:version "name"
-    -- "min"), or a full entry. A full entry is the name string, the
-    -- kind keyword, the location string, then options in any order:
-    -- :ref, :hash, :version. Each option key appears at most once; a
-    -- repeated key is a shape error. The declaration selects the
-    -- class with :defsystem-depends-on ("autolith-asdf") and
-    -- :class "autolith-asdf:system".
-    facing author: LodeAuthor
-    contracts:
-        demands ManifestSchema
-}
-
-surface ConsumerSurface {
-    -- The parsed slots of one Manifest. The distribution client
-    -- reads them at preflight, the manager reads them around the
-    -- load, and outside Autolith the user reads them.
-    facing reader: Consumer
-    contracts:
-        demands ManifestSchema
+        -- The defcontext form is pending; the context kind records
+        -- the common fields first.
 }
 
 ------------------------------------------------------------
@@ -235,3 +228,215 @@ variant ContentDigest : Pin {
     -- The value pins the fetched content.
 }
 
+-- One recorded skill of one lode. The defskill form in the lode's
+-- source creates it at load.
+
+entity SkillDefinition {
+    -- The lode that owns the file that defined this skill.
+    lode: Manifest
+
+    -- Unique within the lode.
+    name: String
+
+    -- Serves the person and the model.
+    description: String
+
+    -- The instruction text the model follows.
+    instructions: String
+
+    -- Names followed like hyperlinks.
+    related: Set<String>
+}
+
+-- One recorded application command of one lode. The defcommand form
+-- in the lode's source creates it at load.
+
+entity ToolDefinition {
+    -- The lode that owns the file that defined this command.
+    lode: Manifest
+
+    -- Unique within the lode.
+    name: String
+
+    -- Serves the person and the model.
+    description: String
+
+    -- The command's usage text.
+    usage: String
+
+    -- The function the defcommand body defined.
+    handler: Any
+
+    -- Names followed like hyperlinks.
+    related: Set<String>
+}
+
+-- One recorded context contribution of one lode. The defcontext
+-- form in the lode's source creates it at load.
+
+entity ContextDefinition {
+    -- The lode that owns the file that defined this context.
+    lode: Manifest
+
+    -- Unique within the lode.
+    name: String
+
+    -- Serves the person and the model.
+    description: String
+
+    -- Names followed like hyperlinks.
+    related: Set<String>
+}
+
+------------------------------------------------------------
+-- Rules
+------------------------------------------------------------
+
+-- The library records one skill the lode author defined. The kind
+-- check fails the load when the manifest does not declare skills.
+
+rule RecordSkill {
+    when: SkillRecorded(author, lode, name, description, instructions, related)
+    requires: "skills" in lode.capabilities
+    requires:
+        not exists SkillDefinition{lode: lode, name: name}
+        and not exists ToolDefinition{lode: lode, name: name}
+        and not exists ContextDefinition{lode: lode, name: name}
+    ensures: SkillDefinition.created(
+        lode: lode,
+        name: name,
+        description: description,
+        instructions: instructions,
+        related: related
+    )
+}
+
+-- The library records one application command the lode author
+-- defined. The kind check fails the load when the manifest does not
+-- declare tools.
+
+rule RecordTool {
+    when: ToolRecorded(author, lode, name, description, usage, handler, related)
+    requires: "tools" in lode.capabilities
+    requires:
+        not exists SkillDefinition{lode: lode, name: name}
+        and not exists ToolDefinition{lode: lode, name: name}
+        and not exists ContextDefinition{lode: lode, name: name}
+    ensures: ToolDefinition.created(
+        lode: lode,
+        name: name,
+        description: description,
+        usage: usage,
+        handler: handler,
+        related: related
+    )
+}
+
+-- The library records one context contribution the lode author
+-- defined. The kind check fails the load when the manifest does not
+-- declare context.
+
+rule RecordContext {
+    when: ContextRecorded(author, lode, name, description, related)
+    requires: "context" in lode.capabilities
+    requires:
+        not exists SkillDefinition{lode: lode, name: name}
+        and not exists ToolDefinition{lode: lode, name: name}
+        and not exists ContextDefinition{lode: lode, name: name}
+    ensures: ContextDefinition.created(
+        lode: lode,
+        name: name,
+        description: description,
+        related: related
+    )
+}
+
+------------------------------------------------------------
+-- Actor Declarations
+------------------------------------------------------------
+
+-- Two actors touch the definition library. The lode author writes
+-- the defsystem declaration and the definition forms. The consumer
+-- reads the parsed slots around the load. The library treats every
+-- consumer the same.
+
+actor LodeAuthor {
+    @guidance
+        -- Writes one defsystem declaration and the definition forms
+        -- in the lode's source. The declaration uses the slot
+        -- schema: name, version, one Dependency per :depends-on
+        -- entry, activation, capabilities, and activation
+        -- dependencies. The definition forms are defskill,
+        -- defcommand, and defcontext.
+}
+
+actor Consumer {
+    -- One actor stands for every reader. Inside Autolith, the
+    -- consumer duties split between the distribution client
+    -- (preflight metadata, resolution, lock) and the Autolith
+    -- manager (slots around the load, activation order,
+    -- registration checks). Outside Autolith, the user is the
+    -- consumer.
+    @guidance
+        -- Reads the parsed slots of one autolith-asdf:system. The
+        -- consumer owns every semantic check: version requirements,
+        -- the capability vocabulary, unknown source kinds, and name
+        -- conflicts at resolution.
+}
+
+------------------------------------------------------------
+-- Surfaces
+------------------------------------------------------------
+
+-- The defsystem declaration in the .asd file. The lode author
+-- writes it once per lode. The library parses it at definition
+-- time and fails shape errors there. The :depends-on entry
+-- grammar: a plain name, a version requirement (:version "name"
+-- "min"), or a full entry. A full entry is the name string, the
+-- kind keyword, the location string, then options in any order:
+-- :ref, :hash, :version. Each option key appears at most once; a
+-- repeated key is a shape error. The declaration selects the
+-- class with :defsystem-depends-on ("autolith-asdf") and
+-- :class "autolith-asdf:system".
+
+surface AuthorSurface {
+    facing author: LodeAuthor
+    contracts:
+        demands ManifestSchema
+}
+
+-- The parsed slots of one Manifest. The distribution client
+-- reads them at preflight, the manager reads them around the
+-- load, and outside Autolith the user reads them.
+
+surface ConsumerSurface {
+    facing reader: Consumer
+    contracts:
+        demands ManifestSchema
+}
+
+-- The definition forms of one lode, while the lode loads. The
+-- library records each form against the lode that owns the file
+-- that defines it.
+
+surface DefinitionSurface {
+    facing author: LodeAuthor
+    context lode: Manifest
+
+    exposes:
+        lode.capabilities
+
+    provides:
+        SkillRecorded(author, lode, name, description, instructions, related)
+        ToolRecorded(author, lode, name, description, usage, handler, related)
+        ContextRecorded(author, lode, name, description, related)
+
+    contracts:
+        demands LodeDefinitions
+}
+
+------------------------------------------------------------
+-- Open Questions
+------------------------------------------------------------
+
+open question "defcontext form - what does the defcontext macro take?"
