@@ -25,6 +25,32 @@
    #:pin
    #:pin-kind
    #:pin-value
+     ;; Recorded lode definitions and their accessors.
+     #:definition
+     #:definition-lode
+     #:definition-name
+     #:definition-description
+     #:definition-related
+     #:skill-definition
+     #:skill-instructions
+     #:tool-definition
+     #:tool-usage
+     #:tool-handler
+     #:context-definition
+     #:record-skill
+     #:record-tool
+     #:record-context
+     #:lode-definitions
+     #:find-definition
+     ;; Definition forms the lode author writes.
+     #:defskill
+     #:defcommand
+     #:defcontext
+     ;; Load-time definition failures.
+     #:definition-error
+     #:definition-error-lode
+     #:definition-error-name
+     #:definition-error-reason
    ;; Definition-time shape errors.
    #:shape-error
    #:shape-error-form

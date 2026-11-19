@@ -13,15 +13,7 @@
              (uiop:symbol-call :autolith-asdf-test :run-all-tests)))
 
 (asdf:defsystem "autolith-asdf/test"
-  :description "Shape checks for the autolith-asdf manifest schema."
+  :description "Shape and recording checks for the autolith-asdf manifest schema."
   :depends-on ("autolith-asdf")
   :pathname "test/"
-  :components ((:file "test"))
-  :perform (asdf:test-op (operation component)
-             (uiop:symbol-call :autolith-asdf-test :run-all-tests)))
-
-(asdf:defsystem "autolith-manager"
-  :description "Client for autolith-asdf: the lode manager."
-  :version "0.1.0"
-  :depends-on ("autolith-asdf")
-  :components ((:file "src/manager/package")))
+  :components ((:file "test")))
