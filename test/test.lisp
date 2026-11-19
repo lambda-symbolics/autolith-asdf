@@ -352,8 +352,9 @@
 
 (defun fixture-directory (name)
   "The directory that holds one fixture lode."
-  (merge-pathnames (format nil "fixtures/~A/" name)
-                   (or *load-pathname* *compile-file-pathname*)))
+  (asdf:system-relative-pathname
+   (asdf:find-system "autolith-asdf")
+   (format nil "test/fixtures/~A/" name)))
 
 (defun register-fixture-directory (name)
   "Make ASDF find one fixture lode's .asd file."
@@ -385,13 +386,13 @@
                (some (lambda (w) (search "context" w)) warnings))
         (check "missing related name warns"
                (some (lambda (w) (search "ghost" w)) warnings)))
-      (setf warnings '())
-      (handler-bind ((warning #'collect))
-        (asdf:load-system "definition-lode" :force t))
-      (check "forced reload drops stale records"
-             (= (length (autolith-asdf:lode-definitions
-                         (asdf:find-system "definition-lode")))
-                3))))
+        (handler-bind ((warning #'collect))
+          (let ((reload-lode (make-recording-lode "reload-lode" '(:skill))))
+            (autolith-asdf:record-skill reload-lode "old" "Old." "Stale.")
+            (autolith-asdf::begin-lode-load reload-lode)
+            (autolith-asdf::end-lode-load reload-lode)
+            (check "a lode load that starts again drops its stale records"
+                   (null (autolith-asdf:find-definition reload-lode "old"))))))))
   (register-fixture-directory "definition-lode-bad")
   (check-definition-error "undeclared kind fails the lode load"
-    (lambda () (asdf:load-system "definition-lode-bad"))))
+      (lambda () (asdf:load-system "definition-lode-bad")))

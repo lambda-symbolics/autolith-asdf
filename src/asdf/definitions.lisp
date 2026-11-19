@@ -76,7 +76,7 @@ definitions, newest first.")
 
 (defun lode-definitions (lode)
   "The definitions LODE recorded, in load order."
-  (nreverse (gethash lode *definitions*)))
+  (reverse (gethash lode *definitions*)))
 
 (defun find-definition (lode name)
   "The definition LODE recorded under NAME, of any kind, or NIL."
@@ -190,10 +190,19 @@ warns. A related name with no matching definition in the lode warns."
   (or *current-lode*
       (error "no lode owns this load: a definition form ran outside a lode load")))
 
+(defun related-form (related)
+  "The expansion of one definition form's related argument: a quoted
+form stays, a literal list is built, a symbol passes through."
+  (cond ((and (consp related) (eq (first related) 'quote))
+         related)
+        ((consp related)
+         `(list ,@related))
+        (t related)))
+
 (defmacro defskill (name description instructions &key (related '()))
   "Record one skill against the lode that owns this file."
   `(record-skill (current-lode) ,name ,description ,instructions
-                 :related ,related))
+                 :related ,(related-form related)))
 
 (defmacro defcommand (name description usage related arguments &body body)
   "Define the command's handler function and record the command against
@@ -201,13 +210,13 @@ the lode that owns this file. NAME is a symbol."
   `(progn
      (defun ,name ,arguments ,@body)
      (record-tool (current-lode) ',name ,description ,usage
-                  (fdefinition ',name) :related ,related)))
+                  (fdefinition ',name) :related ,(related-form related))))
 
 (defmacro defcontext (name description &key (related '()))
   "Record one context contribution against the lode that owns this
 file. Pending: the full defcontext form (spec open question); this
 form records the common fields first."
-  `(record-context (current-lode) ,name ,description :related ,related))
+  `(record-context (current-lode) ,name ,description :related ,(related-form related)))
 
 ;;;---------------------------------------------------------------------
 ;;; ASDF load integration
@@ -221,6 +230,21 @@ form records the common fields first."
         when (typep parent 'system)
           return parent))
 
+(defvar *loading-lodes* '()
+  "The lodes whose loads are in progress.")
+
+(defun begin-lode-load (lode)
+  "Open one lode's load session. A lode load that starts again drops
+its stale records first."
+  (unless (member lode *loading-lodes*)
+    (clear-definitions lode)
+    (push lode *loading-lodes*)))
+
+(defun end-lode-load (lode)
+  "Close one lode's load session and report its definition checks."
+  (setf *loading-lodes* (remove lode *loading-lodes*))
+  (finish-lode-load lode))
+
 (defmethod asdf:perform :around ((op asdf:load-op)
                                  (file asdf:cl-source-file))
   "Bind *current-lode* to the lode that owns FILE while it loads, so
@@ -228,13 +252,11 @@ every definition form in the file attributes its record to that lode
 (spec: DefinitionsAttributed)."
   (let ((lode (component-lode file)))
     (if lode
-        (let ((*current-lode* lode)) (call-next-method))
+        (let ((*current-lode* lode))
+          (begin-lode-load lode)
+          (call-next-method))
         (call-next-method))))
 
-(defmethod asdf:perform :before ((op asdf:load-op) (s system))
-  "A lode load that starts again drops the lode's stale records first."
-  (clear-definitions s))
-
 (defmethod asdf:perform :after ((op asdf:load-op) (s system))
-  "Report the end-of-load definition checks for one lode."
-  (finish-lode-load s))
+  "Close one lode's load session and report its definition checks."
+  (end-lode-load s))

@@ -48,10 +48,10 @@
       (progn
         (funcall thunk)
         (record-failure name "no condition was signaled"))
-    (condition-type ()
-      (record-pass))
     (error (condition)
-      (record-failure name (format nil "wrong condition: ~A" condition)))))
+      (if (typep condition condition-type)
+          (record-pass)
+          (record-failure name (format nil "wrong condition: ~A" condition))))))
 
 (defun logf (entry)
   (push entry *log*))
