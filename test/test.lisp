@@ -281,3 +281,117 @@
                   '(:version "x" "1.0")))
     (check "sourced requirement is the name only"
            (string= (autolith-asdf::load-requirement (third dependencies)) "x"))))
+
+;;;---------------------------------------------------------------------
+;;; Lode definition records
+;;;---------------------------------------------------------------------
+
+(defun make-recording-lode (name capabilities)
+  "One manifest for definition-recording tests."
+  (make-instance 'autolith-asdf:system :name name :capabilities capabilities))
+
+(defun test-definition-records ()
+  (let ((lode (make-recording-lode "recording-lode" '(:skill :tool)))
+        (handler (lambda (thing) thing)))
+    (let ((skill (autolith-asdf:record-skill lode "greet" "Greets."
+                                             "Say hi."
+                                             :related '("wave"))))
+      (check "record-skill class"
+             (typep skill 'autolith-asdf:skill-definition))
+      (check "skill name"
+             (string= (autolith-asdf:definition-name skill) "greet"))
+      (check "skill description"
+             (string= (autolith-asdf:definition-description skill) "Greets."))
+      (check "skill instructions"
+             (string= (autolith-asdf:skill-instructions skill) "Say hi."))
+      (check "skill related"
+             (equal (autolith-asdf:definition-related skill) '("wave")))
+      (check "skill attributed"
+             (eq (autolith-asdf:definition-lode skill) lode)))
+    (let ((tool (autolith-asdf:record-tool lode "run" "Runs." "(run thing)"
+                                           handler)))
+      (check "record-tool class"
+             (typep tool 'autolith-asdf:tool-definition))
+      (check "tool usage"
+             (string= (autolith-asdf:tool-usage tool) "(run thing)"))
+      (check "tool handler"
+             (eq (autolith-asdf:tool-handler tool) handler)))
+    (check "lode-definitions count"
+           (= (length (autolith-asdf:lode-definitions lode)) 2))
+    (check "lode-definitions order"
+           (equal (mapcar #'autolith-asdf:definition-name
+                          (autolith-asdf:lode-definitions lode))
+                  '("greet" "run")))
+    (check "find-definition finds any kind"
+           (typep (autolith-asdf:find-definition lode "run")
+                  'autolith-asdf:tool-definition))
+    (check "find-definition misses"
+           (null (autolith-asdf:find-definition lode "nope")))
+    (check "symbol name records lowercase"
+           (string= (autolith-asdf:definition-name
+                     (autolith-asdf:record-skill lode 'sym "d" "i"))
+                    "sym"))))
+
+(defun test-definition-failures ()
+  (let ((lode (make-recording-lode "failing-lode" '(:tool))))
+    (check-definition-error "undeclared kind fails the load"
+      (lambda () (autolith-asdf:record-skill lode "sneaky" "d" "i")))
+    (check "tool records under a declared kind"
+           (typep (autolith-asdf:record-tool lode "dup" "d" "u" #'identity)
+                  'autolith-asdf:tool-definition))
+    (check-definition-error "duplicate name fails the load"
+      (lambda () (autolith-asdf:record-tool lode "dup" "d2" "u2" #'identity)))
+    (check-definition-error "context kind undeclared"
+      (lambda () (autolith-asdf:record-context lode "ctx" "d")))
+    (check "failed records left no trace"
+           (null (autolith-asdf:find-definition lode "sneaky")))))
+
+;;;---------------------------------------------------------------------
+;;; Lode load integration
+;;;---------------------------------------------------------------------
+
+(defun fixture-directory (name)
+  "The directory that holds one fixture lode."
+  (merge-pathnames (format nil "fixtures/~A/" name)
+                   (or *load-pathname* *compile-file-pathname*)))
+
+(defun register-fixture-directory (name)
+  "Make ASDF find one fixture lode's .asd file."
+  (pushnew (fixture-directory name) asdf:*central-registry* :test #'equal))
+
+(defun test-lode-load-integration ()
+  (register-fixture-directory "definition-lode")
+  (let ((warnings '()))
+    (flet ((collect (condition)
+             (push (princ-to-string condition) warnings)
+             (muffle-warning condition)))
+      (handler-bind ((warning #'collect))
+        (asdf:load-system "definition-lode"))
+      (let* ((lode (asdf:find-system "definition-lode"))
+             (definitions (autolith-asdf:lode-definitions lode)))
+        (check "fixture records three definitions"
+               (= (length definitions) 3))
+        (check "fixture definitions attributed to the lode"
+               (every (lambda (d) (eq (autolith-asdf:definition-lode d) lode))
+                      definitions))
+        (check "fixture skill related links"
+               (equal (autolith-asdf:definition-related
+                       (autolith-asdf:find-definition lode "greet"))
+                      '("wave" "ghost")))
+        (check "fixture defcommand recorded a handler"
+               (functionp (autolith-asdf:tool-handler
+                           (autolith-asdf:find-definition lode "run"))))
+        (check "unused kind warns"
+               (some (lambda (w) (search "context" w)) warnings))
+        (check "missing related name warns"
+               (some (lambda (w) (search "ghost" w)) warnings)))
+      (setf warnings '())
+      (handler-bind ((warning #'collect))
+        (asdf:load-system "definition-lode" :force t))
+      (check "forced reload drops stale records"
+             (= (length (autolith-asdf:lode-definitions
+                         (asdf:find-system "definition-lode")))
+                3))))
+  (register-fixture-directory "definition-lode-bad")
+  (check-definition-error "undeclared kind fails the lode load"
+    (lambda () (asdf:load-system "definition-lode-bad"))))
