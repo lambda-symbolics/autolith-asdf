@@ -72,7 +72,11 @@
                 #'test-definition-hook
                 #'test-absent-slots
                 #'test-duplicate-names
-                #'test-load-requirements))
+                #'test-load-requirements
+                #'test-definition-records
+                #'test-definition-failures
+                #'test-lode-load-integration
+                #'test-example-lode))
   (format *standard-output* "~&autolith-asdf: ~A passed, ~A failed.~%"
           *passed* (length *failures*))
   (dolist (failure *failures*)
@@ -396,3 +400,36 @@
   (register-fixture-directory "definition-lode-bad")
   (check-definition-error "undeclared kind fails the lode load"
       (lambda () (asdf:load-system "definition-lode-bad")))
+
+(defun example-lode-directory ()
+  "The directory that holds the greeting example."
+  (asdf:system-relative-pathname (asdf:find-system "autolith-asdf")
+                                 "examples/greeting/"))
+
+(defun test-example-lode ()
+  (pushnew (example-lode-directory) asdf:*central-registry* :test #'equal)
+  (let ((warnings '()))
+    (flet ((collect (condition)
+             (push (princ-to-string condition) warnings)
+             (muffle-warning condition)))
+      (handler-bind ((warning #'collect))
+        (asdf:load-system "greeting")))
+    (let* ((lode (asdf:find-system "greeting"))
+           (definitions (autolith-asdf:lode-definitions lode)))
+      (check "example records three definitions" (= (length definitions) 3))
+      (check "example defines a skill"
+             (typep (autolith-asdf:find-definition lode "greet-person")
+                    'autolith-asdf:skill-definition))
+      (check "example defines a context"
+             (typep (autolith-asdf:find-definition lode "person-known")
+                    'autolith-asdf:context-definition))
+      (check "example defines a command"
+             (typep (autolith-asdf:find-definition lode "greet")
+                    'autolith-asdf:tool-definition))
+      (check "example command keeps its handler"
+             (functionp (autolith-asdf:tool-handler
+                         (autolith-asdf:find-definition lode "greet"))))
+      (check "example loads without definition warnings"
+             (notany (lambda (w) (or (search "capability" w)
+                                     (search "relates to" w)))
+                     warnings)))))
