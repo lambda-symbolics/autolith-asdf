@@ -293,11 +293,11 @@ entity ContextDefinition {
 ------------------------------------------------------------
 
 -- The library records one skill the lode author defined. The kind
--- check fails the load when the manifest does not declare skills.
+-- check fails the load when the manifest does not declare :skill.
 
 rule RecordSkill {
     when: SkillRecorded(author, lode, name, description, instructions, related)
-    requires: "skills" in lode.capabilities
+    requires: "skill" in lode.capabilities
     requires:
         not exists SkillDefinition{lode: lode, name: name}
         and not exists ToolDefinition{lode: lode, name: name}
@@ -313,11 +313,11 @@ rule RecordSkill {
 
 -- The library records one application command the lode author
 -- defined. The kind check fails the load when the manifest does not
--- declare tools.
+-- declare :tool.
 
 rule RecordTool {
     when: ToolRecorded(author, lode, name, description, usage, handler, related)
-    requires: "tools" in lode.capabilities
+    requires: "tool" in lode.capabilities
     requires:
         not exists SkillDefinition{lode: lode, name: name}
         and not exists ToolDefinition{lode: lode, name: name}
@@ -334,7 +334,7 @@ rule RecordTool {
 
 -- The library records one context contribution the lode author
 -- defined. The kind check fails the load when the manifest does not
--- declare context.
+-- declare :context.
 
 rule RecordContext {
     when: ContextRecorded(author, lode, name, description, related)
