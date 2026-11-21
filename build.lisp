@@ -14,8 +14,11 @@
   (uiop:pathname-directory-pathname *load-truename*))
 
 (defun register-local-system ()
-  "Make ASDF find the .asd file next to this script."
-  (pushnew (script-directory) asdf:*central-registry* :test #'equal))
+  "Make ASDF find the .asd files under systems/."
+  (pushnew (script-directory) asdf:*central-registry* :test #'equal)
+  (dolist (directory (uiop:subdirectories
+                      (merge-pathnames "systems/" (script-directory))))
+    (pushnew directory asdf:*central-registry* :test #'equal)))
 
 (defun compile-command (system)
   "Compile all source files of one system without loading them."

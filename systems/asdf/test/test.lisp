@@ -20,48 +20,26 @@
                 #:ref-kind
                 #:ref-designator
                 #:pin-kind
-                #:pin-value)
+                  #:pin-value)
+  (:import-from :autolith-test
+                #:check
+                #:check-condition
+                #:reset-results
+                #:report-results)
   (:export #:run-all-tests))
 
 (in-package :autolith-asdf-test)
 
-(defparameter *passed* 0)
-(defparameter *failures* nil)
-
-(defun record-pass ()
-  (incf *passed*))
-
-(defun record-failure (name note)
-  (push (format nil "~A: ~A" name note) *failures*))
-
-(defun check (name asserted)
-  (if asserted
-      (record-pass)
-      (record-failure name "assertion failed")))
-
 (defun check-shape-error (name thunk)
   "Run THUNK and pass when it signals SHAPE-ERROR."
-  (handler-case
-      (progn
-        (funcall thunk)
-        (record-failure name "no shape error was signaled"))
-    (shape-error ()
-      (record-pass))
-    (error (condition)
-      (record-failure name (format nil "wrong error: ~A" condition)))))
+  (check-condition name thunk 'shape-error))
+
 (defun check-definition-error (name thunk)
   "Run THUNK and pass when it signals a system definition error."
-  (handler-case
-      (progn
-        (funcall thunk)
-        (record-failure name "no error was signaled"))
-    (asdf:system-definition-error ()
-      (record-pass))
-    (error (condition)
-      (record-failure name (format nil "wrong error: ~A" condition)))))
+  (check-condition name thunk 'asdf:system-definition-error))
 
 (defun run-all-tests ()
-  (setf *passed* 0 *failures* nil)
+  (reset-results)
   (mapc #'funcall
         (list #'test-plain-entry
               #'test-versioned-entry
@@ -77,12 +55,7 @@
                 #'test-definition-failures
                 #'test-lode-load-integration
                 #'test-example-lode))
-  (format *standard-output* "~&autolith-asdf: ~A passed, ~A failed.~%"
-          *passed* (length *failures*))
-  (dolist (failure *failures*)
-    (format *error-output* "FAIL ~A~%" failure))
-  (when *failures*
-    (error "autolith-asdf tests failed")))
+  (report-results "autolith-asdf"))
 
 (defun parse (entries)
   (autolith-asdf::parse-dependency-list entries))
@@ -404,7 +377,7 @@
 (defun example-lode-directory ()
   "The directory that holds the greeting example."
   (asdf:system-relative-pathname (asdf:find-system "autolith-asdf")
-                                 "examples/greeting/"))
+                                 "../../examples/greeting/"))
 
 (defun test-example-lode ()
   (pushnew (example-lode-directory) asdf:*central-registry* :test #'equal)

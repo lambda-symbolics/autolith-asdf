@@ -22,36 +22,18 @@
                 #:deactivation-refused
                 #:deactivation-refused-dependents
                 #:registration-refused
-                #:manager-installed-definitions)
+                  #:manager-installed-definitions)
+  (:import-from :autolith-test
+                #:check
+                #:check-condition
+                #:record-failure
+                #:reset-results
+                #:report-results)
   (:export #:run-all-tests))
 
 (in-package :autolith-manager-test)
 
-(defparameter *passed* 0)
-(defparameter *failures* nil)
 (defparameter *log* nil)
-
-(defun record-pass ()
-  (incf *passed*))
-
-(defun record-failure (name note)
-  (push (format nil "~A: ~A" name note) *failures*))
-
-(defun check (name asserted)
-  (if asserted
-      (record-pass)
-      (record-failure name "assertion failed")))
-
-(defun check-condition (name thunk condition-type)
-  "Run THUNK and pass when it signals a condition of CONDITION-TYPE."
-  (handler-case
-      (progn
-        (funcall thunk)
-        (record-failure name "no condition was signaled"))
-    (error (condition)
-      (if (typep condition condition-type)
-          (record-pass)
-          (record-failure name (format nil "wrong condition: ~A" condition))))))
 
 (defun logf (entry)
   (push entry *log*))
@@ -346,7 +328,7 @@
 ;;;---------------------------------------------------------------------
 
 (defun run-all-tests ()
-  (setf *passed* 0 *failures* nil)
+  (reset-results)
   (mapc #'funcall
         (list #'test-activate-entry-point
               #'test-entry-failure-unwinds-in-reverse
@@ -363,9 +345,4 @@
               #'test-library-lode-refused
               #'test-entry-resolution-failure
               #'test-bad-handle-fails-activation))
-  (format *standard-output* "~&autolith-manager: ~A passed, ~A failed.~%"
-          *passed* (length *failures*))
-  (dolist (failure *failures*)
-    (format *error-output* "FAIL ~A~%" failure))
-  (when *failures*
-    (error "autolith-manager tests failed")))
+  (report-results "autolith-manager"))
