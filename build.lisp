@@ -26,10 +26,20 @@
   (asdf:compile-system system)
   (format t "Compiled ~a.~%" system))
 
+(defun deprecated-recursive-operate-warning-p (condition)
+  "Is CONDITION ASDF's warning about a nested operate call?"
+  (and (typep condition 'warning)
+       (search "Deprecated recursive use" (princ-to-string condition))))
+
 (defun test-command (system)
   "Compile, load and run the tests of one system."
   (format t "Testing ~a ...~%" system)
-  (asdf:test-system system)
+  (handler-bind
+      ((warning
+        (lambda (condition)
+          (when (deprecated-recursive-operate-warning-p condition)
+            (muffle-warning condition)))))
+    (asdf:test-system system))
   (format t "All tests passed.~%"))
 
 (defun help-command ()
