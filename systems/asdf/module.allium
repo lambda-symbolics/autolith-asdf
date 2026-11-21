@@ -61,11 +61,11 @@ contract ManifestSchema {
 -- and checks them at load.
 
 contract LodeDefinitions {
-    record_skill: (lode: Manifest, name: String, description: String, instructions: String, related: Set<String>) -> SkillDefinition
+    record_skill: (lode: Manifest, name: String, description: String, instructions: String, links: Set<String>) -> SkillDefinition
 
-    record_tool: (lode: Manifest, name: String, description: String, usage: String, handler: Any, related: Set<String>) -> ToolDefinition
+    record_tool: (lode: Manifest, name: String, description: String, usage: String, handler: Any, links: Set<String>) -> ToolDefinition
 
-    record_context: (lode: Manifest, name: String, description: String, related: Set<String>) -> ContextDefinition
+    record_context: (lode: Manifest, name: String, description: String, links: Set<String>) -> ContextDefinition
 
     @invariant KindsCheckedAtLoad
         -- The library checks each recorded definition's kind against
@@ -245,7 +245,7 @@ entity SkillDefinition {
     instructions: String
 
     -- Names followed like hyperlinks.
-    related: Set<String>
+    links: Set<String>
 }
 
 -- One recorded application command of one lode. The defcommand form
@@ -268,7 +268,7 @@ entity ToolDefinition {
     handler: Any
 
     -- Names followed like hyperlinks.
-    related: Set<String>
+    links: Set<String>
 }
 
 -- One recorded context contribution of one lode. The defcontext
@@ -285,7 +285,7 @@ entity ContextDefinition {
     description: String
 
     -- Names followed like hyperlinks.
-    related: Set<String>
+    links: Set<String>
 }
 
 ------------------------------------------------------------
@@ -296,7 +296,7 @@ entity ContextDefinition {
 -- check fails the load when the manifest does not declare :skill.
 
 rule RecordSkill {
-    when: SkillRecorded(author, lode, name, description, instructions, related)
+    when: SkillRecorded(author, lode, name, description, instructions, links)
     requires: "skill" in lode.capabilities
     requires:
         not exists SkillDefinition{lode: lode, name: name}
@@ -307,7 +307,7 @@ rule RecordSkill {
         name: name,
         description: description,
         instructions: instructions,
-        related: related
+        links: links
     )
 }
 
@@ -316,7 +316,7 @@ rule RecordSkill {
 -- declare :tool.
 
 rule RecordTool {
-    when: ToolRecorded(author, lode, name, description, usage, handler, related)
+    when: ToolRecorded(author, lode, name, description, usage, handler, links)
     requires: "tool" in lode.capabilities
     requires:
         not exists SkillDefinition{lode: lode, name: name}
@@ -328,7 +328,7 @@ rule RecordTool {
         description: description,
         usage: usage,
         handler: handler,
-        related: related
+        links: links
     )
 }
 
@@ -337,7 +337,7 @@ rule RecordTool {
 -- declare :context.
 
 rule RecordContext {
-    when: ContextRecorded(author, lode, name, description, related)
+    when: ContextRecorded(author, lode, name, description, links)
     requires: "context" in lode.capabilities
     requires:
         not exists SkillDefinition{lode: lode, name: name}
@@ -347,7 +347,7 @@ rule RecordContext {
         lode: lode,
         name: name,
         description: description,
-        related: related
+        links: links
     )
 }
 
@@ -427,9 +427,9 @@ surface DefinitionSurface {
         lode.capabilities
 
     provides:
-        SkillRecorded(author, lode, name, description, instructions, related)
-        ToolRecorded(author, lode, name, description, usage, handler, related)
-        ContextRecorded(author, lode, name, description, related)
+        SkillRecorded(author, lode, name, description, instructions, links)
+        ToolRecorded(author, lode, name, description, usage, handler, links)
+        ContextRecorded(author, lode, name, description, links)
 
     contracts:
         demands LodeDefinitions

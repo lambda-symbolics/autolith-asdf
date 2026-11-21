@@ -198,11 +198,17 @@ entity CleanupHandle {
 
 rule StartActivation {
     when: Activate(manager, lode, _)
-    requires: lode.activation != null
+    requires: lode.activation != null or lode.capabilities.count > 0
     requires: (ActivationRuns where system = lode and status in {running, unwinding, active, draining}).count = 0
     for name in lode.activation_depends_on:
         requires: (ActivationRuns where system.name = name and status = active).count > 0
     ensures: ActivationRun.created(system: lode, status: running)
+}
+
+rule DefinitionOnlyActivation {
+    when: run: ActivationRun.created
+    requires: run.system.activation = null
+    ensures: run.status = active
 }
 
 -- The entry point registers one completed act through the
