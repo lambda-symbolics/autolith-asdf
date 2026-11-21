@@ -24,6 +24,8 @@
   (:import-from :autolith-test
                 #:check
                 #:check-condition
+                #:record-failure
+                #:record-pass
                 #:reset-results
                 #:report-results)
   (:export #:run-all-tests))
@@ -35,8 +37,21 @@
   (check-condition name thunk 'shape-error))
 
 (defun check-definition-error (name thunk)
-  "Run THUNK and pass when it signals a system definition error."
-  (check-condition name thunk 'asdf:system-definition-error))
+  "Run THUNK and pass when it signals a system definition error.
+A failing definition load leaves its expected error counted in the
+enclosing compilation unit; absorb it into this check's own unit so
+the process summary stays clean."
+  (handler-case
+      (progn
+        (let ((*standard-output* (make-broadcast-stream))
+              (*error-output* (make-broadcast-stream)))
+          (with-compilation-unit (:override t)
+            (funcall thunk)))
+        (record-failure name "no error was signaled"))
+    (asdf:system-definition-error ()
+      (record-pass))
+    (error (condition)
+      (record-failure name (format nil "wrong error: ~A" condition)))))
 
 (defun run-all-tests ()
   (reset-results)
